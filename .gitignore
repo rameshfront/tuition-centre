@@ -31,14 +31,17 @@ migrate_working_dir/
 /build/
 
 # Android related
-**/android/**/gradle-wrapper.jar
 **/android/.gradle
 **/android/captures/
-**/android/gradlew
-**/android/gradlew.bat
 **/android/local.properties
 **/android/**/GeneratedPluginRegistrant.java
+
+# Track wrapper files
+!**/android/gradlew
+!**/android/gradlew.bat
+!**/android/**/gradle-wrapper.jar
 
 # Exceptions to above rules.
 !**/android/**/build.gradle
 !**/android/app/src/main/res/**
+
