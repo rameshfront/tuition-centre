@@ -29,11 +29,8 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Generate Android Gradle Wrapper
-        working-directory: android
-        run: |
-          gradle wrapper --gradle-version 8.3
-          chmod +x gradlew
+      - name: Set Permissions
+        run: chmod +x android/gradlew
 
       - name: Install Dependencies
         run: flutter pub get
