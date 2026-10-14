@@ -11,6 +11,8 @@ import '../attendance/mark_attendance_screen.dart';
 import '../fees/record_payment_screen.dart';
 import '../fees/fee_management_screen.dart';
 import '../reports/reports_screen.dart';
+import '../../models/centre_profile.dart';
+import '../profile/centre_profile_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -21,6 +23,7 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   DashboardStats _stats = DashboardStats.empty();
+  CentreProfile _centreProfile = CentreProfile.defaultProfile();
   bool _isLoading = true;
 
   @override
@@ -29,12 +32,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _loadDashboardData();
   }
 
-  Future<void> _loadDashboardData() async {
-    setState(() => _isLoading = true);
-    final stats = await DBHelper.instance.getDashboardStats();
+  Future<void> _loadDashboardData({bool isRefresh = false}) async {
+    final results = await Future.wait([
+      DBHelper.instance.getDashboardStats(forceRefresh: isRefresh),
+      DBHelper.instance.getCentreProfile(),
+    ]);
     if (mounted) {
       setState(() {
-        _stats = stats;
+        _stats = results[0] as DashboardStats;
+        _centreProfile = results[1] as CentreProfile;
         _isLoading = false;
       });
     }
@@ -48,7 +54,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: RefreshIndicator(
-        onRefresh: _loadDashboardData,
+        onRefresh: () => _loadDashboardData(isRefresh: true),
         color: AppColors.primaryBlue,
         child: CustomScrollView(
           slivers: [
@@ -71,66 +77,95 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      // Tuition Centre Logo
-                      Container(
-                        width: 54,
-                        height: 54,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.15),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
+                      // Clickable Tuition Centre Logo & Name
+                      Expanded(
+                        child: InkWell(
+                          onTap: () async {
+                            final res = await Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => const CentreProfileScreen()),
+                            );
+                            if (res == true) _loadDashboardData();
+                          },
+                          borderRadius: BorderRadius.circular(12),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 54,
+                                  height: 54,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: AppColors.primaryYellow, width: 2),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.15),
+                                        blurRadius: 10,
+                                        offset: const Offset(0, 4),
+                                      ),
+                                    ],
+                                  ),
+                                  padding: const EdgeInsets.all(2),
+                                  child: ClipOval(
+                                    child: Image.asset(
+                                      'assets/images/logo.png',
+                                      fit: BoxFit.contain,
+                                      errorBuilder: (context, error, stackTrace) => const Icon(
+                                        Icons.school_rounded,
+                                        color: AppColors.primaryBlue,
+                                        size: 28,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              _centreProfile.centreName,
+                                              style: const TextStyle(
+                                                fontSize: 18,
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.white,
+                                                letterSpacing: 0.3,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          const Icon(Icons.edit_outlined, size: 14, color: AppColors.lightYellow),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        todayStr,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.white.withOpacity(0.85),
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                        padding: const EdgeInsets.all(5),
-                        child: Image.asset(
-                          'assets/images/logo.png',
-                          fit: BoxFit.contain,
-                          errorBuilder: (context, error, stackTrace) => const Icon(
-                            Icons.school_rounded,
-                            color: AppColors.primaryBlue,
-                            size: 28,
                           ),
                         ),
                       ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              AppConstants.appName,
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                                letterSpacing: 0.3,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              todayStr,
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: Colors.white.withOpacity(0.85),
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      // Quick Action Refresh / Sync
+                      // Quick Action Refresh
                       IconButton(
                         icon: const Icon(Icons.refresh_rounded, color: Colors.white),
                         tooltip: 'Refresh Stats',
-                        onPressed: _loadDashboardData,
+                        onPressed: () => _loadDashboardData(isRefresh: true),
                       ),
                     ],
                   ),

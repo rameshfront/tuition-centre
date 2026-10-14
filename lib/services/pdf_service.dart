@@ -6,6 +6,8 @@ import 'package:intl/intl.dart';
 import '../models/student.dart';
 import '../models/fee_payment.dart';
 import '../models/attendance.dart';
+import '../models/centre_profile.dart';
+import '../database/db_helper.dart';
 import '../constants/app_constants.dart';
 
 class PdfService {
@@ -36,6 +38,7 @@ class PdfService {
   }) async {
     final pdf = pw.Document();
     final logoImage = await _loadLogo();
+    final profile = await DBHelper.instance.getCentreProfile();
     final currencyFormat = NumberFormat.currency(locale: 'en_IN', symbol: 'Rs. ');
 
     pdf.addPage(
@@ -68,7 +71,7 @@ class PdfService {
                         crossAxisAlignment: pw.CrossAxisAlignment.start,
                         children: [
                           pw.Text(
-                            AppConstants.appName.toUpperCase(),
+                            profile.centreName.toUpperCase(),
                             style: pw.TextStyle(
                               fontSize: 20,
                               fontWeight: pw.FontWeight.bold,
@@ -77,7 +80,7 @@ class PdfService {
                           ),
                           pw.SizedBox(height: 3),
                           pw.Text(
-                            AppConstants.appTagline,
+                            profile.tagline,
                             style: pw.TextStyle(
                               fontSize: 10,
                               fontStyle: pw.FontStyle.italic,
@@ -86,7 +89,7 @@ class PdfService {
                           ),
                           pw.SizedBox(height: 4),
                           pw.Text(
-                            '${AppConstants.centreAddress} | Phone: ${AppConstants.centreContact}',
+                            '${profile.address} | Phone: ${profile.phone}',
                             style: pw.TextStyle(fontSize: 9, color: grayText),
                           ),
                         ],
@@ -255,13 +258,16 @@ class PdfService {
                       crossAxisAlignment: pw.CrossAxisAlignment.center,
                       children: [
                         pw.Text(
-                          'For SANGEETHA TUITION CENTRE',
+                          'For ${profile.centreName.toUpperCase()}',
                           style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: darkBlue),
                         ),
                         pw.SizedBox(height: 25),
                         pw.Container(width: 150, height: 1, color: PdfColors.grey500),
                         pw.SizedBox(height: 3),
-                        pw.Text('Authorized Signature & Seal', style: pw.TextStyle(fontSize: 9, color: grayText)),
+                        pw.Text(
+                          profile.inchargeName.isNotEmpty ? profile.inchargeName : 'Authorized Signature & Seal',
+                          style: pw.TextStyle(fontSize: 9, color: grayText),
+                        ),
                       ],
                     ),
                   ],
@@ -270,7 +276,7 @@ class PdfService {
                 pw.SizedBox(height: 10),
                 pw.Center(
                   child: pw.Text(
-                    'This is a computer generated receipt from Sangeetha Tuition Centre mobile app.',
+                    'This is a computer generated receipt from ${profile.centreName} mobile app.',
                     style: pw.TextStyle(fontSize: 8, color: grayText, fontStyle: pw.FontStyle.italic),
                   ),
                 ),
@@ -296,6 +302,7 @@ class PdfService {
   }) async {
     final pdf = pw.Document();
     final logoImage = await _loadLogo();
+    final profile = await DBHelper.instance.getCentreProfile();
 
     int presentCount = attendanceList.where((a) => a.status == 'Present').length;
     int absentCount = attendanceList.where((a) => a.status == 'Absent').length;
@@ -323,7 +330,7 @@ class PdfService {
                       crossAxisAlignment: pw.CrossAxisAlignment.start,
                       children: [
                         pw.Text(
-                          AppConstants.appName,
+                          profile.centreName,
                           style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: brandBlue),
                         ),
                         pw.Text(
@@ -331,8 +338,12 @@ class PdfService {
                           style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: darkBlue),
                         ),
                         pw.Text(
+                          '${profile.address} | Phone: ${profile.phone}',
+                          style: pw.TextStyle(fontSize: 8.5, color: grayText),
+                        ),
+                        pw.Text(
                           'Date Range: ${startDate ?? "Beginning"} to ${endDate ?? "Present"}',
-                          style: pw.TextStyle(fontSize: 9, color: grayText),
+                          style: pw.TextStyle(fontSize: 8.5, color: grayText),
                         ),
                       ],
                     ),
@@ -411,6 +422,7 @@ class PdfService {
   }) async {
     final pdf = pw.Document();
     final logoImage = await _loadLogo();
+    final profile = await DBHelper.instance.getCentreProfile();
     final currency = NumberFormat.currency(locale: 'en_IN', symbol: 'Rs. ');
 
     double totalCollected = paymentList.fold(0.0, (sum, item) => sum + item.amount);
@@ -438,7 +450,7 @@ class PdfService {
                       crossAxisAlignment: pw.CrossAxisAlignment.start,
                       children: [
                         pw.Text(
-                          AppConstants.appName,
+                          profile.centreName,
                           style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: brandBlue),
                         ),
                         pw.Text(
@@ -446,8 +458,12 @@ class PdfService {
                           style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: darkBlue),
                         ),
                         pw.Text(
+                          '${profile.address} | Phone: ${profile.phone}',
+                          style: pw.TextStyle(fontSize: 8.5, color: grayText),
+                        ),
+                        pw.Text(
                           'Generated On: ${DateFormat('dd MMM yyyy, hh:mm a').format(DateTime.now())}',
-                          style: pw.TextStyle(fontSize: 9, color: grayText),
+                          style: pw.TextStyle(fontSize: 8.5, color: grayText),
                         ),
                       ],
                     ),

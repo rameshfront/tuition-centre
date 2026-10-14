@@ -4,13 +4,19 @@ import '../../constants/app_colors.dart';
 import '../../constants/app_constants.dart';
 import '../../models/student.dart';
 import '../../models/fee_payment.dart';
+import '../../models/centre_profile.dart';
 import '../../database/db_helper.dart';
 import 'fee_receipt_screen.dart';
 
 class RecordPaymentScreen extends StatefulWidget {
   final Student? initialStudent;
+  final String? initialMonth;
 
-  const RecordPaymentScreen({super.key, this.initialStudent});
+  const RecordPaymentScreen({
+    super.key,
+    this.initialStudent,
+    this.initialMonth,
+  });
 
   @override
   State<RecordPaymentScreen> createState() => _RecordPaymentScreenState();
@@ -24,12 +30,19 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
   late TextEditingController _paymentDateController;
   late TextEditingController _notesController;
 
+  CentreProfile _centreProfile = CentreProfile.defaultProfile();
   Student? _selectedStudent;
   List<Student> _allStudents = [];
-  String _selectedMonth = DateFormat('MMMM yyyy').format(DateTime.now());
+  late String _selectedMonth;
   String _selectedMethod = AppConstants.paymentMethods.first;
 
-  Map<String, double> _currentFeeSummary = {'totalPaid': 0.0, 'monthlyFee': 0.0, 'balanceDue': 0.0};
+  // Month-specific fee calculation states
+  double _monthlyFee = 0.0;
+  double _monthPaid = 0.0;
+  double _monthPending = 0.0;
+  double _overallDue = 0.0;
+  double _overallTotalPaid = 0.0;
+
   bool _isLoading = true;
   bool _isSaving = false;
 
@@ -43,6 +56,8 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
     );
     _notesController = TextEditingController();
 
+    _selectedMonth = widget.initialMonth ?? DateFormat('MMMM yyyy').format(DateTime.now());
+
     _loadInitialData();
   }
 
@@ -50,39 +65,64 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
     setState(() => _isLoading = true);
     final autoReceipt = await DBHelper.instance.generateReceiptNumber();
     final students = await DBHelper.instance.getStudents(onlyActive: true);
+    final profile = await DBHelper.instance.getCentreProfile();
 
+    _centreProfile = profile;
     _receiptNoController.text = autoReceipt;
 
-    Student? defaultStudent;
+    Student? targetStudent;
     if (widget.initialStudent != null) {
-      defaultStudent = widget.initialStudent;
+      // Find matching student by ID from the active students list
+      try {
+        targetStudent = students.firstWhere((s) => s.id == widget.initialStudent!.id);
+      } catch (_) {
+        targetStudent = widget.initialStudent;
+      }
     } else if (students.isNotEmpty) {
-      defaultStudent = students.first;
+      targetStudent = students.first;
     }
 
-    if (mounted) {
-      setState(() {
-        _allStudents = students;
-        _selectedStudent = defaultStudent;
-        _isLoading = false;
-      });
-      if (defaultStudent != null) {
-        _onStudentSelected(defaultStudent);
-      }
+    _allStudents = students;
+    _selectedStudent = targetStudent;
+
+    if (targetStudent != null) {
+      await _calculateFeesForStudentAndMonth(targetStudent, _selectedMonth, isFirstLoad: true);
+    } else {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _onStudentSelected(Student student) async {
-    final summary = await DBHelper.instance.getStudentFeeSummary(student.id!);
+  Future<void> _calculateFeesForStudentAndMonth(
+    Student student,
+    String month, {
+    bool isFirstLoad = false,
+  }) async {
+    final summary = await DBHelper.instance.getStudentMonthlyFeeSummary(student.id!, month);
+
     if (mounted) {
+      final monthlyFee = summary['monthlyFee'] ?? student.monthlyFees;
+      final monthPaid = summary['monthPaid'] ?? 0.0;
+      final monthPending = summary['monthPending'] ?? 0.0;
+      final overallDue = summary['overallBalanceDue'] ?? 0.0;
+      final overallTotalPaid = summary['overallTotalPaid'] ?? 0.0;
+
       setState(() {
         _selectedStudent = student;
-        _currentFeeSummary = summary;
-        // Pre-fill amount with monthly fee or balance if positive
-        if (_amountController.text.isEmpty) {
-          _amountController.text = student.monthlyFees > 0
-              ? student.monthlyFees.toStringAsFixed(0)
-              : '';
+        _selectedMonth = month;
+        _monthlyFee = monthlyFee;
+        _monthPaid = monthPaid;
+        _monthPending = monthPending;
+        _overallDue = overallDue;
+        _overallTotalPaid = overallTotalPaid;
+        _isLoading = false;
+
+        // Auto pre-fill amount with the exact pending amount for this selected month!
+        if (monthPending > 0) {
+          _amountController.text = monthPending.toStringAsFixed(0);
+        } else if (monthPaid >= monthlyFee && monthlyFee > 0) {
+          _amountController.text = '0';
+        } else if (_amountController.text.isEmpty && monthlyFee > 0) {
+          _amountController.text = monthlyFee.toStringAsFixed(0);
         }
       });
     }
@@ -128,9 +168,14 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
   List<String> _generateMonthOptions() {
     final now = DateTime.now();
     final List<String> months = [];
-    for (int i = -3; i <= 3; i++) {
+    // Generate past 12 months up to next 6 months
+    for (int i = -12; i <= 6; i++) {
       final date = DateTime(now.year, now.month + i, 1);
       months.add(DateFormat('MMMM yyyy').format(date));
+    }
+    // Make sure currently selected month is included
+    if (!months.contains(_selectedMonth)) {
+      months.insert(0, _selectedMonth);
     }
     return months;
   }
@@ -144,14 +189,21 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
       return;
     }
 
+    final enteredAmount = double.tryParse(_amountController.text.trim()) ?? 0.0;
+    if (enteredAmount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid payment amount greater than 0'), backgroundColor: AppColors.warning),
+      );
+      return;
+    }
+
     setState(() => _isSaving = true);
 
     try {
-      final amount = double.parse(_amountController.text.trim());
       final payment = FeePayment(
         studentId: _selectedStudent!.id!,
         receiptNo: _receiptNoController.text.trim(),
-        amount: amount,
+        amount: enteredAmount,
         paymentDate: _paymentDateController.text.trim(),
         feeMonth: _selectedMonth,
         paymentMethod: _selectedMethod,
@@ -167,9 +219,8 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
       if (mounted) {
         setState(() => _isSaving = false);
 
-        // Calculate updated remaining balance
-        final newBalance = (_currentFeeSummary['balanceDue'] ?? 0) - amount;
-        final updatedBalance = newBalance > 0 ? newBalance : 0.0;
+        // Calculate remaining balance after this payment
+        final remainingForMonth = (_monthPending - enteredAmount) > 0 ? (_monthPending - enteredAmount) : 0.0;
 
         // Show dialog asking to view or share receipt
         showDialog(
@@ -185,7 +236,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
               ],
             ),
             content: Text(
-              'Fee payment of Rs. ${amount.toStringAsFixed(0)} for ${_selectedStudent!.fullName} recorded successfully.\n\nWould you like to view/share the official PDF bill receipt?',
+              'Fee payment of Rs. ${enteredAmount.toStringAsFixed(0)} for ${_selectedStudent!.fullName} for the month of $_selectedMonth recorded successfully.\n\nRemaining pending for $_selectedMonth: Rs. ${remainingForMonth.toStringAsFixed(0)}.\n\nWould you like to view/share the official PDF bill receipt?',
             ),
             actions: [
               TextButton(
@@ -203,7 +254,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                       builder: (_) => FeeReceiptScreen(
                         payment: payment,
                         student: _selectedStudent!,
-                        balanceDue: updatedBalance,
+                        balanceDue: remainingForMonth,
                       ),
                     ),
                   );
@@ -239,11 +290,16 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
 
     final currency = NumberFormat.currency(locale: 'en_IN', symbol: 'Rs. ');
     final monthOptions = _generateMonthOptions();
+    final double enteredAmount = double.tryParse(_amountController.text.trim()) ?? 0.0;
+    final bool isMonthFullyPaid = _monthPending <= 0 && _monthPaid >= _monthlyFee && _monthlyFee > 0;
 
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Record Fee Payment', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: Text(
+          '${_centreProfile.centreName} - Billing',
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
         backgroundColor: AppColors.primaryBlue,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
@@ -255,7 +311,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header Card
+              // Header Card with Receipt Number
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
@@ -271,9 +327,9 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Tuition Fee Collection Entry',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.primaryBlue),
+                          Text(
+                            '${_centreProfile.centreName} - Fee Collection',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.primaryBlue),
                           ),
                           Text(
                             'Receipt #${_receiptNoController.text}',
@@ -287,10 +343,21 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
               ),
 
               const SizedBox(height: 18),
-              const Text('Select Student *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+
+              // 1. SELECT STUDENT (Rock-solid ID mapping so clicked student is ALWAYS selected)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Select Student *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  if (_selectedStudent != null)
+                    Text(
+                      'Class: ${_selectedStudent!.gradeClass}',
+                      style: const TextStyle(fontSize: 12, color: AppColors.primaryBlue, fontWeight: FontWeight.bold),
+                    ),
+                ],
+              ),
               const SizedBox(height: 6),
 
-              // Student Dropdown
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 decoration: BoxDecoration(
@@ -299,56 +366,44 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                   border: Border.all(color: AppColors.border),
                 ),
                 child: DropdownButtonHideUnderline(
-                  child: DropdownButton<Student>(
-                    value: _selectedStudent,
+                  child: DropdownButton<int>(
+                    value: _selectedStudent?.id,
                     isExpanded: true,
                     icon: const Icon(Icons.arrow_drop_down, color: AppColors.primaryBlue),
                     items: _allStudents.map((s) {
-                      return DropdownMenuItem<Student>(
-                        value: s,
+                      return DropdownMenuItem<int>(
+                        value: s.id,
                         child: Text(
                           '${s.fullName} (${s.studentId} - ${s.gradeClass})',
                           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                         ),
                       );
                     }).toList(),
-                    onChanged: (val) {
-                      if (val != null) _onStudentSelected(val);
+                    onChanged: (id) {
+                      if (id != null) {
+                        final student = _allStudents.firstWhere((s) => s.id == id);
+                        _calculateFeesForStudentAndMonth(student, _selectedMonth);
+                      }
                     },
                   ),
                 ),
               ),
 
-              // Current Balance Info Card
-              if (_selectedStudent != null) ...[
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _feeSummaryItem('Monthly Fee', currency.format(_selectedStudent!.monthlyFees), AppColors.textPrimary),
-                      _feeSummaryItem('Paid Till Now', currency.format(_currentFeeSummary['totalPaid'] ?? 0), AppColors.primaryBlue),
-                      _feeSummaryItem(
-                        'Pending Due',
-                        currency.format(_currentFeeSummary['balanceDue'] ?? 0),
-                        (_currentFeeSummary['balanceDue'] ?? 0) > 0 ? AppColors.error : AppColors.success,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+              const SizedBox(height: 16),
 
-              const SizedBox(height: 18),
-
-              // Fee Month Selector
-              const Text('Fee Month *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              // 2. FEE MONTH DROPDOWN (Intelligently changes calculations immediately when changed!)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Fee Month *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  Text(
+                    'Viewing: $_selectedMonth',
+                    style: const TextStyle(fontSize: 11, color: AppColors.darkYellow, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
               const SizedBox(height: 6),
+
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 decoration: BoxDecoration(
@@ -358,22 +413,154 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                 ),
                 child: DropdownButtonHideUnderline(
                   child: DropdownButton<String>(
-                    value: monthOptions.contains(_selectedMonth) ? _selectedMonth : monthOptions.first,
+                    value: _selectedMonth,
                     isExpanded: true,
                     icon: const Icon(Icons.arrow_drop_down, color: AppColors.primaryBlue),
                     items: monthOptions.map((m) {
-                      return DropdownMenuItem(value: m, child: Text(m, style: const TextStyle(fontSize: 13)));
+                      return DropdownMenuItem<String>(
+                        value: m,
+                        child: Text(m, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                      );
                     }).toList(),
-                    onChanged: (val) {
-                      if (val != null) setState(() => _selectedMonth = val);
+                    onChanged: (newMonth) {
+                      if (newMonth != null && _selectedStudent != null) {
+                        _calculateFeesForStudentAndMonth(_selectedStudent!, newMonth);
+                      }
                     },
                   ),
                 ),
               ),
 
+              const SizedBox(height: 14),
+
+              // 3. MONTH-SPECIFIC FEE BREAKDOWN CARD (Updates dynamically for selected month!)
+              if (_selectedStudent != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: isMonthFullyPaid ? AppColors.successLight : Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isMonthFullyPaid ? AppColors.success : AppColors.border,
+                      width: isMonthFullyPaid ? 1.5 : 1,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.03),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Fee Status for $_selectedMonth',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                          ),
+                          if (isMonthFullyPaid)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: AppColors.success,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Text(
+                                'PAID IN FULL',
+                                style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const Divider(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          _feeSummaryItem(
+                            'Monthly Fee',
+                            currency.format(_monthlyFee),
+                            AppColors.textPrimary,
+                          ),
+                          _feeSummaryItem(
+                            'Paid for Month',
+                            currency.format(_monthPaid),
+                            AppColors.primaryBlue,
+                          ),
+                          _feeSummaryItem(
+                            'Pending for Month',
+                            currency.format(_monthPending),
+                            _monthPending > 0 ? AppColors.error : AppColors.success,
+                          ),
+                        ],
+                      ),
+                      if (_overallDue > 0 && _overallDue != _monthPending) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppColors.lightYellow,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.info_outline_rounded, size: 14, color: AppColors.darkYellow),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Total pending across all months: ${currency.format(_overallDue)}',
+                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.darkYellow),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+
               const SizedBox(height: 16),
 
-              // Amount & Date
+              // Quick Fill Shortcut Chips (Full Due, Half, Clear)
+              if (_monthPending > 0) ...[
+                Row(
+                  children: [
+                    const Text('Quick Fill: ', style: TextStyle(fontSize: 11, color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
+                    const SizedBox(width: 4),
+                    ActionChip(
+                      label: Text('Full Due (${currency.format(_monthPending)})'),
+                      labelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primaryBlue),
+                      backgroundColor: AppColors.lightBlue,
+                      padding: const EdgeInsets.all(2),
+                      onPressed: () {
+                        setState(() {
+                          _amountController.text = _monthPending.toStringAsFixed(0);
+                        });
+                      },
+                    ),
+                    const SizedBox(width: 6),
+                    if (_monthPending >= 200) ...[
+                      ActionChip(
+                        label: Text('Half (${currency.format(_monthPending / 2)})'),
+                        labelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.darkYellow),
+                        backgroundColor: AppColors.lightYellow,
+                        padding: const EdgeInsets.all(2),
+                        onPressed: () {
+                          setState(() {
+                            _amountController.text = (_monthPending / 2).toStringAsFixed(0);
+                          });
+                        },
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 10),
+              ],
+
+              // 4. AMOUNT PAID & PAYMENT DATE
               Row(
                 children: [
                   Expanded(
@@ -381,6 +568,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                     child: TextFormField(
                       controller: _amountController,
                       keyboardType: TextInputType.number,
+                      onChanged: (_) => setState(() {}),
                       validator: (val) {
                         if (val == null || val.trim().isEmpty) return 'Enter amount';
                         final num = double.tryParse(val);
@@ -423,9 +611,33 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                 ],
               ),
 
+              // Live Balance Preview after this payment
+              if (enteredAmount > 0) ...[
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.calculate_outlined, size: 14, color: AppColors.textSecondary),
+                      const SizedBox(width: 6),
+                      Text(
+                        (_monthPending - enteredAmount) <= 0
+                            ? '✅ This payment clears the full fee for $_selectedMonth!'
+                            : 'Remaining for $_selectedMonth after this payment: ${currency.format(_monthPending - enteredAmount)}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: (_monthPending - enteredAmount) <= 0 ? AppColors.success : AppColors.darkYellow,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
               const SizedBox(height: 16),
 
-              // Payment Method Selector
+              // 5. PAYMENT MODE
               const Text('Payment Mode *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
               const SizedBox(height: 6),
               Wrap(
@@ -452,13 +664,13 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
 
               const SizedBox(height: 16),
 
-              // Notes
+              // 6. NOTES
               TextFormField(
                 controller: _notesController,
                 maxLines: 2,
                 decoration: InputDecoration(
                   labelText: 'Payment Remarks (Optional)',
-                  hintText: 'e.g. UPI Ref / Cheque No / Advance',
+                  hintText: 'e.g. UPI Ref / GPay Transaction ID / Cheque No',
                   prefixIcon: const Icon(Icons.notes_rounded, color: AppColors.primaryBlue, size: 20),
                   filled: true,
                   fillColor: Colors.white,
@@ -470,9 +682,9 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                 ),
               ),
 
-              const SizedBox(height: 30),
+              const SizedBox(height: 28),
 
-              // Save Button
+              // 7. SAVE BUTTON
               SizedBox(
                 width: double.infinity,
                 height: 50,
@@ -483,9 +695,9 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                       : const Icon(Icons.check_circle_outline_rounded, color: Colors.white),
                   label: _isSaving
                       ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text(
-                          'Save Payment & Generate Bill',
-                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+                      : Text(
+                          'Save Payment of ${currency.format(enteredAmount)}',
+                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
                         ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primaryBlue,
@@ -493,6 +705,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                   ),
                 ),
               ),
+              const SizedBox(height: 20),
             ],
           ),
         ),

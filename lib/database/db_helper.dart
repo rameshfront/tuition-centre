@@ -6,6 +6,7 @@ import '../models/student.dart';
 import '../models/attendance.dart';
 import '../models/fee_payment.dart';
 import '../models/dashboard_stats.dart';
+import '../models/centre_profile.dart';
 
 class DBHelper {
   static final DBHelper instance = DBHelper._init();
@@ -30,7 +31,70 @@ class DBHelper {
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
+      onOpen: (db) async {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS centre_profile (
+            id INTEGER PRIMARY KEY,
+            centre_name TEXT NOT NULL,
+            tagline TEXT,
+            phone TEXT NOT NULL,
+            email TEXT,
+            address TEXT NOT NULL,
+            incharge_name TEXT
+          )
+        ''');
+        final count = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM centre_profile')) ?? 0;
+        if (count == 0) {
+          await db.insert('centre_profile', {
+            'id': 1,
+            'centre_name': 'SS Tuition Centre',
+            'tagline': 'Inspiring Minds, Shaping Futures',
+            'phone': '+91 98765 43210',
+            'email': 'sstuitioncentre@gmail.com',
+            'address': 'No. 12, Main Road, Near Bus Stand',
+            'incharge_name': 'Authorized In-Charge',
+          });
+        } else {
+          // If previous default had Sangeetha Tuition Centre, update to SS Tuition Centre
+          await db.execute('''
+            UPDATE centre_profile 
+            SET centre_name = 'SS Tuition Centre', email = 'sstuitioncentre@gmail.com'
+            WHERE id = 1 AND centre_name = 'Sangeetha Tuition Centre'
+          ''');
+        }
+
+        // Fast performance indexes
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_students_active ON students (is_active)');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance (date)');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_attendance_student ON attendance (student_id)');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_fee_student ON fee_payments (student_id)');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_fee_month ON fee_payments (fee_month)');
+      },
     );
+  }
+
+  static CentreProfile? _cachedProfile;
+
+  Future<CentreProfile> getCentreProfile() async {
+    if (_cachedProfile != null) return _cachedProfile!;
+    final db = await instance.database;
+    final result = await db.query('centre_profile', where: 'id = ?', whereArgs: [1]);
+    if (result.isNotEmpty) {
+      _cachedProfile = CentreProfile.fromMap(result.first);
+      return _cachedProfile!;
+    }
+    _cachedProfile = CentreProfile.defaultProfile();
+    return _cachedProfile!;
+  }
+
+  Future<void> updateCentreProfile(CentreProfile profile) async {
+    final db = await instance.database;
+    await db.insert(
+      'centre_profile',
+      profile.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    _cachedProfile = profile;
   }
 
   Future<void> _createDB(Database db, int version) async {
@@ -86,6 +150,29 @@ class DBHelper {
         FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE
       )
     ''');
+
+    // 4. Centre Profile Table
+    await db.execute('''
+      CREATE TABLE centre_profile (
+        id INTEGER PRIMARY KEY,
+        centre_name TEXT NOT NULL,
+        tagline TEXT,
+        phone TEXT NOT NULL,
+        email TEXT,
+        address TEXT NOT NULL,
+        incharge_name TEXT
+      )
+    ''');
+
+    await db.insert('centre_profile', {
+      'id': 1,
+      'centre_name': 'SS Tuition Centre',
+      'tagline': 'Inspiring Minds, Shaping Futures',
+      'phone': '+91 98765 43210',
+      'email': 'sstuitioncentre@gmail.com',
+      'address': 'No. 12, Main Road, Near Bus Stand',
+      'incharge_name': 'Authorized In-Charge',
+    });
   }
 
   // ==========================================
@@ -394,23 +481,78 @@ class DBHelper {
     };
   }
 
+  Future<Map<String, double>> getStudentMonthlyFeeSummary(int studentId, String feeMonth) async {
+    final db = await instance.database;
+    final studentData = await db.query(
+      'students',
+      columns: ['monthly_fees', 'admission_date', 'is_active'],
+      where: 'id = ?',
+      whereArgs: [studentId],
+    );
+
+    if (studentData.isEmpty) {
+      return {
+        'monthlyFee': 0.0,
+        'monthPaid': 0.0,
+        'monthPending': 0.0,
+        'overallTotalPaid': 0.0,
+        'overallBalanceDue': 0.0,
+      };
+    }
+
+    final monthlyFee = (studentData.first['monthly_fees'] as num?)?.toDouble() ?? 0.0;
+
+    // Payments specifically for this feeMonth
+    final monthPayResult = await db.rawQuery(
+      'SELECT SUM(amount) as month_paid FROM fee_payments WHERE student_id = ? AND fee_month = ?',
+      [studentId, feeMonth],
+    );
+    final monthPaid = (monthPayResult.first['month_paid'] as num?)?.toDouble() ?? 0.0;
+    final monthPending = (monthlyFee - monthPaid) > 0 ? (monthlyFee - monthPaid) : 0.0;
+
+    // Overall summary across all months
+    final overall = await getStudentFeeSummary(studentId);
+
+    return {
+      'monthlyFee': monthlyFee,
+      'monthPaid': monthPaid,
+      'monthPending': monthPending,
+      'overallTotalPaid': overall['totalPaid'] ?? 0.0,
+      'overallBalanceDue': overall['balanceDue'] ?? 0.0,
+    };
+  }
+
   // ==========================================
-  // DASHBOARD AGGREGATE STATS
+  // DASHBOARD AGGREGATE STATS (High Performance)
   // ==========================================
 
-  Future<DashboardStats> getDashboardStats() async {
+  static DashboardStats? _cachedStats;
+
+  void invalidateDashboardStats() {
+    _cachedStats = null;
+  }
+
+  Future<DashboardStats> getDashboardStats({bool forceRefresh = false}) async {
+    if (!forceRefresh && _cachedStats != null) {
+      return _cachedStats!;
+    }
+
     final db = await instance.database;
     final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
     final currentMonthYear = DateFormat('MMMM yyyy').format(DateTime.now());
 
-    // 1. Total, Active, Inactive Students
-    final totalStudentsResult = await db.rawQuery('SELECT COUNT(*) as count FROM students');
-    final activeStudentsResult = await db.rawQuery('SELECT COUNT(*) as count FROM students WHERE is_active = 1');
-    final inactiveStudentsResult = await db.rawQuery('SELECT COUNT(*) as count FROM students WHERE is_active = 0');
+    // 1. Total, Active, Inactive Students in 1 fast query
+    final countsResult = await db.rawQuery('''
+      SELECT 
+        COUNT(*) as total,
+        SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as active,
+        SUM(CASE WHEN is_active = 0 THEN 1 ELSE 0 END) as inactive
+      FROM students
+    ''');
 
-    final totalStudents = totalStudentsResult.first['count'] as int? ?? 0;
-    final activeStudents = activeStudentsResult.first['count'] as int? ?? 0;
-    final inactiveStudents = inactiveStudentsResult.first['count'] as int? ?? 0;
+    final totalStudents = countsResult.first['total'] as int? ?? 0;
+    final activeStudents = countsResult.first['active'] as int? ?? 0;
+    final inactiveStudents = countsResult.first['inactive'] as int? ?? 0;
 
     // 2. Today's Attendance
     final todayAttResult = await db.rawQuery('''
@@ -441,17 +583,43 @@ class DBHelper {
     ''', [currentMonthYear]);
     final totalFeesCollected = (monthFeeResult.first['total_collected'] as num?)?.toDouble() ?? 0.0;
 
-    // 4. Calculate pending fees across all active students
-    final activeStudentsList = await db.query('students', where: 'is_active = 1');
-    double pendingTotal = 0.0;
+    // 4. Calculate pending fees across all active students with 1 high-speed JOIN query
+    final activeWithPayments = await db.rawQuery('''
+      SELECT s.id, s.monthly_fees, s.admission_date, COALESCE(p.total_paid, 0) as total_paid
+      FROM students s
+      LEFT JOIN (
+        SELECT student_id, SUM(amount) as total_paid
+        FROM fee_payments
+        GROUP BY student_id
+      ) p ON s.id = p.student_id
+      WHERE s.is_active = 1
+    ''');
 
-    for (var s in activeStudentsList) {
-      final sId = s['id'] as int;
-      final summary = await getStudentFeeSummary(sId);
-      pendingTotal += summary['balanceDue'] ?? 0.0;
+    double pendingTotal = 0.0;
+    final now = DateTime.now();
+
+    for (var row in activeWithPayments) {
+      final monthlyFee = (row['monthly_fees'] as num?)?.toDouble() ?? 0.0;
+      final admDateStr = row['admission_date'] as String? ?? '';
+      final totalPaid = (row['total_paid'] as num?)?.toDouble() ?? 0.0;
+
+      int monthsCount = 1;
+      try {
+        if (admDateStr.isNotEmpty) {
+          final admDate = DateTime.parse(admDateStr);
+          monthsCount = ((now.year - admDate.year) * 12) + (now.month - admDate.month) + 1;
+          if (monthsCount < 1) monthsCount = 1;
+        }
+      } catch (_) {
+        monthsCount = 1;
+      }
+
+      final totalExpected = monthlyFee * monthsCount;
+      final balanceDue = (totalExpected - totalPaid) > 0 ? (totalExpected - totalPaid) : 0.0;
+      pendingTotal += balanceDue;
     }
 
-    return DashboardStats(
+    final stats = DashboardStats(
       totalStudents: totalStudents,
       activeStudents: activeStudents,
       inactiveStudents: inactiveStudents,
@@ -462,6 +630,64 @@ class DBHelper {
       totalFeesCollectedThisMonth: totalFeesCollected,
       pendingFeesTotal: pendingTotal,
     );
+
+    _cachedStats = stats;
+    return stats;
+  }
+
+  /// High-speed single query for retrieving students with pending dues
+  Future<List<Map<String, dynamic>>> getPendingStudentsOverview() async {
+    final db = await instance.database;
+    final rows = await db.rawQuery('''
+      SELECT s.*, COALESCE(p.total_paid, 0) as total_paid
+      FROM students s
+      LEFT JOIN (
+        SELECT student_id, SUM(amount) as total_paid
+        FROM fee_payments
+        GROUP BY student_id
+      ) p ON s.id = p.student_id
+      WHERE s.is_active = 1
+      ORDER BY s.full_name ASC
+    ''');
+
+    final List<Map<String, dynamic>> pendingList = [];
+    final now = DateTime.now();
+
+    for (var row in rows) {
+      final s = Student.fromMap(row);
+      final monthlyFee = s.monthlyFees;
+      final admDateStr = s.admissionDate;
+      final totalPaid = (row['total_paid'] as num?)?.toDouble() ?? 0.0;
+
+      int monthsCount = 1;
+      try {
+        if (admDateStr.isNotEmpty) {
+          final admDate = DateTime.parse(admDateStr);
+          monthsCount = ((now.year - admDate.year) * 12) + (now.month - admDate.month) + 1;
+          if (monthsCount < 1) monthsCount = 1;
+        }
+      } catch (_) {
+        monthsCount = 1;
+      }
+
+      final totalExpected = monthlyFee * monthsCount;
+      final balance = (totalExpected - totalPaid) > 0 ? (totalExpected - totalPaid) : 0.0;
+
+      if (balance > 0) {
+        pendingList.add({
+          'student': s,
+          'student_id': s.studentId,
+          'name': s.fullName,
+          'class': s.gradeClass,
+          'mobile': s.mobile,
+          'monthly_fee': monthlyFee,
+          'monthlyFee': monthlyFee,
+          'balance': balance,
+          'totalPaid': totalPaid,
+        });
+      }
+    }
+    return pendingList;
   }
 
   // ==========================================
@@ -577,7 +803,7 @@ class DBHelper {
     final payments = await db.query('fee_payments');
 
     final data = {
-      'app': 'Sangeetha Tuition Centre',
+      'app': 'SS Tuition Centre',
       'version': 1,
       'exported_at': DateTime.now().toIso8601String(),
       'students': students,

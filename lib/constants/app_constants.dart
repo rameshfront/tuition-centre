@@ -1,9 +1,9 @@
 class AppConstants {
-  static const String appName = 'Sangeetha Tuition Centre';
+  static const String appName = 'SS Tuition Centre';
   static const String appTagline = 'Inspiring Minds, Shaping Futures';
   static const String centreAddress = 'No. 12, Main Road, Near Bus Stand';
   static const String centreContact = '+91 98765 43210';
-  static const String centreEmail = 'sangeethatuition@gmail.com';
+  static const String centreEmail = 'sstuitioncentre@gmail.com';
 
   static const List<String> classesList = [
     'Class 1',

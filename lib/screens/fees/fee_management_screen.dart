@@ -45,46 +45,44 @@ class _FeeManagementScreenState extends State<FeeManagementScreen> with SingleTi
   }
 
   Future<void> _loadFeesData() async {
-    setState(() => _isLoading = true);
+    if (_payments.isEmpty && _pendingStudents.isEmpty) {
+      setState(() => _isLoading = true);
+    }
 
-    // 1. Fetch payments with search/filter
-    final paymentsList = await DBHelper.instance.getAllPayments(
-      month: _selectedMonth,
-      query: _searchController.text.trim(),
-    );
+    // High-speed parallel query execution
+    final results = await Future.wait([
+      DBHelper.instance.getAllPayments(
+        month: _selectedMonth,
+        query: _searchController.text.trim(),
+      ),
+      DBHelper.instance.getPendingStudentsOverview(),
+    ]);
 
-    // 2. Fetch all active students and calculate dues
-    final activeStudents = await DBHelper.instance.getStudents(onlyActive: true);
-    final List<Map<String, dynamic>> pendingList = [];
-    double totalDueAcrossAll = 0.0;
+    final paymentsList = results[0] as List<FeePayment>;
+    final pendingList = List<Map<String, dynamic>>.from(results[1] as List);
 
-    for (var s in activeStudents) {
-      final summary = await DBHelper.instance.getStudentFeeSummary(s.id!);
-      final balance = summary['balanceDue'] ?? 0.0;
-      if (balance > 0) {
-        totalDueAcrossAll += balance;
-        pendingList.add({
-          'student': s,
-          'student_id': s.studentId,
-          'name': s.fullName,
-          'class': s.gradeClass,
-          'mobile': s.mobile,
-          'balance': balance,
-          'monthlyFee': s.monthlyFees,
-          'totalPaid': summary['totalPaid'] ?? 0.0,
-        });
-      }
+    // Apply search filter to pending students if query is present
+    final query = _searchController.text.trim().toLowerCase();
+    List<Map<String, dynamic>> filteredPending = pendingList;
+    if (query.isNotEmpty) {
+      filteredPending = pendingList.where((p) {
+        final name = (p['name'] as String? ?? '').toLowerCase();
+        final code = (p['student_id'] as String? ?? '').toLowerCase();
+        final mob = (p['mobile'] as String? ?? '').toLowerCase();
+        return name.contains(query) || code.contains(query) || mob.contains(query);
+      }).toList();
     }
 
     // Sort pending by highest dues first
-    pendingList.sort((a, b) => (b['balance'] as double).compareTo(a['balance'] as double));
+    filteredPending.sort((a, b) => (b['balance'] as double).compareTo(a['balance'] as double));
 
+    double totalDueAcrossAll = pendingList.fold(0.0, (sum, p) => sum + ((p['balance'] as num?)?.toDouble() ?? 0.0));
     double collectedSum = paymentsList.fold(0.0, (sum, p) => sum + p.amount);
 
     if (mounted) {
       setState(() {
         _payments = paymentsList;
-        _pendingStudents = pendingList;
+        _pendingStudents = filteredPending;
         _totalCollected = collectedSum;
         _totalPending = totalDueAcrossAll;
         _isLoading = false;
@@ -317,7 +315,12 @@ class _FeeManagementScreenState extends State<FeeManagementScreen> with SingleTi
                       onPressed: () async {
                         final res = await Navigator.of(context).push(
                           MaterialPageRoute(
-                            builder: (_) => RecordPaymentScreen(initialStudent: student),
+                            builder: (_) => RecordPaymentScreen(
+                              initialStudent: student,
+                              initialMonth: _selectedMonth != 'All Months'
+                                  ? _selectedMonth
+                                  : DateFormat('MMMM yyyy').format(DateTime.now()),
+                            ),
                           ),
                         );
                         if (res == true) _loadFeesData();

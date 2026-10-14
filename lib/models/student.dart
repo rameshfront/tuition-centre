@@ -120,4 +120,13 @@ class Student {
       createdAt: createdAt ?? this.createdAt,
     );
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is Student && other.id == id && other.studentId == studentId;
+  }
+
+  @override
+  int get hashCode => Object.hash(id, studentId);
 }

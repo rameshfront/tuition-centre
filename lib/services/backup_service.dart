@@ -9,9 +9,11 @@ class StorageBackupService {
   static Future<String?> exportBackup() async {
     try {
       final jsonString = await DBHelper.instance.exportAllDataAsJson();
+      final profile = await DBHelper.instance.getCentreProfile();
       final tempDir = await getTemporaryDirectory();
       final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
-      final backupFilePath = '${tempDir.path}/sangeetha_tuition_backup_$timestamp.json';
+      final safeName = profile.centreName.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_');
+      final backupFilePath = '${tempDir.path}/${safeName}_backup_$timestamp.json';
 
       final file = File(backupFilePath);
       await file.writeAsString(jsonString);
@@ -19,8 +21,8 @@ class StorageBackupService {
       // Share via Android share sheet
       await Share.shareXFiles(
         [XFile(backupFilePath)],
-        subject: 'Sangeetha Tuition Centre DB Backup - $timestamp',
-        text: 'Backup data file for Sangeetha Tuition Centre application.',
+        subject: '${profile.centreName} DB Backup - $timestamp',
+        text: 'Backup data file for ${profile.centreName} application.',
       );
 
       return backupFilePath;

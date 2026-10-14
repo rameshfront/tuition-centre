@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
+import '../database/db_helper.dart';
 import 'main_navigation.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -20,7 +21,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     super.initState();
     _animController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1200),
+      duration: const Duration(milliseconds: 600),
     );
 
     _fadeAnimation = CurvedAnimation(
@@ -34,8 +35,12 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
     _animController.forward();
 
-    // Navigate to Main Navigation after 2.2 seconds
-    Future.delayed(const Duration(milliseconds: 2200), () {
+    // Pre-warm DB and Centre Profile cache in background for instant dashboard loading
+    DBHelper.instance.getCentreProfile();
+    DBHelper.instance.getDashboardStats();
+
+    // Fast navigation (800ms) for snappy app startup
+    Future.delayed(const Duration(milliseconds: 800), () {
       if (mounted) {
         Navigator.of(context).pushReplacement(
           PageRouteBuilder(
@@ -43,7 +48,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
             transitionsBuilder: (context, anim1, anim2, child) {
               return FadeTransition(opacity: anim1, child: child);
             },
-            transitionDuration: const Duration(milliseconds: 400),
+            transitionDuration: const Duration(milliseconds: 250),
           ),
         );
       }
