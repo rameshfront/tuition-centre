@@ -251,11 +251,15 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
                           '${_student!.studentId}  •  ${_student!.gradeClass}',
                           style: const TextStyle(fontSize: 13, color: AppColors.textSecondary, fontWeight: FontWeight.w500),
                         ),
-                        const SizedBox(height: 3),
-                        Text(
-                          'Parent: ${_student!.parentName} (${_student!.mobile})',
-                          style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
-                        ),
+                        if (_student!.parentName.isNotEmpty || _student!.mobile.isNotEmpty) ...[
+                          const SizedBox(height: 3),
+                          Text(
+                            _student!.parentName.isNotEmpty && _student!.mobile.isNotEmpty
+                                ? 'Parent: ${_student!.parentName} (${_student!.mobile})'
+                                : (_student!.parentName.isNotEmpty ? 'Parent: ${_student!.parentName}' : 'Mobile: ${_student!.mobile}'),
+                            style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -342,10 +346,10 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
           title: 'Student Details',
           icon: Icons.person_rounded,
           rows: [
-            _detailRow('Date of Birth', _student!.dob),
+            _detailRow('Date of Birth', _student!.dob.isNotEmpty ? _student!.dob : 'Not specified'),
             _detailRow('Gender', _student!.gender),
             _detailRow('Admission Date', _student!.admissionDate),
-            _detailRow('Current School', _student!.schoolName ?? 'Not specified'),
+            _detailRow('Current School', (_student!.schoolName != null && _student!.schoolName!.isNotEmpty) ? _student!.schoolName! : 'Not specified'),
             _detailRow('Enrolled Subjects', _student!.subjects),
           ],
         ),
@@ -354,9 +358,9 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
           title: 'Parent & Contact',
           icon: Icons.family_restroom_rounded,
           rows: [
-            _detailRow('Parent Name', _student!.parentName),
-            _detailRow('Contact Phone', _student!.mobile),
-            _detailRow('Residential Address', _student!.address ?? 'Not specified'),
+            _detailRow('Parent Name', _student!.parentName.isNotEmpty ? _student!.parentName : 'Not specified'),
+            _detailRow('Contact Phone', _student!.mobile.isNotEmpty ? _student!.mobile : 'Not specified'),
+            _detailRow('Residential Address', (_student!.address != null && _student!.address!.isNotEmpty) ? _student!.address! : 'Not specified'),
           ],
         ),
         const SizedBox(height: 14),

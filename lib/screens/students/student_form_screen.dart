@@ -308,9 +308,9 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
                   Expanded(
                     child: _buildDateField(
                       controller: _dobController,
-                      label: 'Date of Birth *',
+                      label: 'Date of Birth (Optional)',
                       icon: Icons.cake_outlined,
-                      validator: (val) => val == null || val.trim().isEmpty ? 'Select DOB' : null,
+                      isOptional: true,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -331,19 +331,18 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
 
               _buildTextField(
                 controller: _parentNameController,
-                label: 'Parent / Guardian Name *',
+                label: 'Parent / Guardian Name (Optional)',
                 icon: Icons.family_restroom_rounded,
-                validator: (val) => val == null || val.trim().isEmpty ? 'Enter parent name' : null,
               ),
               const SizedBox(height: 14),
 
               _buildTextField(
                 controller: _mobileController,
-                label: 'Mobile Number (10 Digits) *',
+                label: 'Parent Mobile Number (Optional)',
                 icon: Icons.phone_android_rounded,
                 keyboardType: TextInputType.phone,
                 validator: (val) {
-                  if (val == null || val.trim().isEmpty) return 'Enter mobile number';
+                  if (val == null || val.trim().isEmpty) return null; // Optional
                   final clean = val.replaceAll(RegExp(r'\D'), '');
                   if (clean.length < 10) return 'Must be at least 10 digits';
                   return null;
@@ -353,7 +352,7 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
 
               _buildTextField(
                 controller: _addressController,
-                label: 'Residential Address',
+                label: 'Residential Address (Optional)',
                 icon: Icons.home_outlined,
                 maxLines: 2,
               ),
@@ -397,7 +396,7 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
 
               _buildTextField(
                 controller: _schoolNameController,
-                label: 'Current School Name (Optional)',
+                label: 'School Name (Optional)',
                 icon: Icons.apartment_rounded,
               ),
               const SizedBox(height: 14),
@@ -443,7 +442,7 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
               const SizedBox(height: 14),
               _buildTextField(
                 controller: _notesController,
-                label: 'Special Notes / Medical / Remarks',
+                label: 'Special Notes / Remarks (Optional)',
                 icon: Icons.note_alt_outlined,
                 maxLines: 2,
               ),
@@ -526,6 +525,7 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
     required TextEditingController controller,
     required String label,
     required IconData icon,
+    bool isOptional = false,
     String? Function(String?)? validator,
   }) {
     return TextFormField(
@@ -535,7 +535,16 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
       validator: validator,
       style: const TextStyle(fontSize: 13),
       decoration: _inputDecoration(label, icon).copyWith(
-        suffixIcon: const Icon(Icons.arrow_drop_down, color: AppColors.primaryBlue),
+        suffixIcon: (isOptional && controller.text.isNotEmpty)
+            ? IconButton(
+                icon: const Icon(Icons.close_rounded, size: 18, color: AppColors.textMuted),
+                onPressed: () {
+                  setState(() {
+                    controller.clear();
+                  });
+                },
+              )
+            : const Icon(Icons.arrow_drop_down, color: AppColors.primaryBlue),
       ),
     );
   }

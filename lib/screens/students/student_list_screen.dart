@@ -449,11 +449,15 @@ class _StudentListScreenState extends State<StudentListScreen> {
                                               '${s.studentId}  •  ${s.gradeClass}',
                                               style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
                                             ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              'Parent: ${s.parentName} (${s.mobile})',
-                                              style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
-                                            ),
+                                            if (s.parentName.isNotEmpty || s.mobile.isNotEmpty) ...[
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                s.parentName.isNotEmpty && s.mobile.isNotEmpty
+                                                    ? 'Parent: ${s.parentName} (${s.mobile})'
+                                                    : (s.parentName.isNotEmpty ? 'Parent: ${s.parentName}' : 'Mobile: ${s.mobile}'),
+                                                style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                              ),
+                                            ],
                                           ],
                                         ),
                                       ),
