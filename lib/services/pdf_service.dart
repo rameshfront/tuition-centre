@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -288,6 +290,62 @@ class PdfService {
     );
 
     return pdf.save();
+  }
+
+  /// Rasterize the fee receipt PDF into a crisp, high-resolution PNG image
+  static Future<Uint8List> generateFeeReceiptImage({
+    required FeePayment payment,
+    required Student student,
+    required double totalBalanceDue,
+    double dpi = 220,
+  }) async {
+    final pdfBytes = await generateFeeReceipt(
+      payment: payment,
+      student: student,
+      totalBalanceDue: totalBalanceDue,
+    );
+
+    Uint8List? imageBytes;
+    await for (final page in Printing.raster(pdfBytes, pages: [0], dpi: dpi)) {
+      imageBytes = await page.toPng();
+      break;
+    }
+
+    if (imageBytes != null) {
+      return imageBytes;
+    }
+    throw Exception('Failed to rasterize receipt into image');
+  }
+
+  /// Save receipt PDF or PNG image to device temporary/storage folder and return file
+  static Future<File> saveReceiptToFile({
+    required FeePayment payment,
+    required Student student,
+    required double totalBalanceDue,
+    required bool asImage,
+  }) async {
+    final tempDir = await getTemporaryDirectory();
+    final safeReceiptNo = payment.receiptNo.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+
+    if (asImage) {
+      final imgBytes = await generateFeeReceiptImage(
+        payment: payment,
+        student: student,
+        totalBalanceDue: totalBalanceDue,
+      );
+      final file = File('${tempDir.path}/Receipt_${safeReceiptNo}.png');
+      await file.writeAsBytes(imgBytes);
+      return file;
+    } else {
+      final pdfBytes = await generateFeeReceipt(
+        payment: payment,
+        student: student,
+        totalBalanceDue: totalBalanceDue,
+      );
+      final file = File('${tempDir.path}/Receipt_${safeReceiptNo}.pdf');
+      await file.writeAsBytes(pdfBytes);
+      return file;
+    }
   }
 
   // ==========================================

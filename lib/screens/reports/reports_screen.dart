@@ -9,6 +9,7 @@ import '../../database/db_helper.dart';
 import '../../services/pdf_service.dart';
 import '../../services/backup_service.dart';
 import '../../widgets/confirm_dialog.dart';
+import '../attendance/attendance_history_screen.dart';
 
 class ReportsAndStorageScreen extends StatefulWidget {
   const ReportsAndStorageScreen({super.key});
@@ -333,18 +334,41 @@ class _ReportsAndStorageScreenState extends State<ReportsAndStorageScreen> with 
                 ),
               ),
               const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _generateAttendanceReport,
-                  icon: const Icon(Icons.print_rounded, size: 18),
-                  label: const Text('Generate Attendance PDF'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primaryBlue,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const AttendanceHistoryScreen()),
+                        );
+                      },
+                      icon: const Icon(Icons.search_rounded, size: 16, color: AppColors.primaryBlue),
+                      label: const Text('Search & Edit', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: AppColors.primaryBlue),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: ElevatedButton.icon(
+                      onPressed: _generateAttendanceReport,
+                      icon: const Icon(Icons.print_rounded, size: 18),
+                      label: const Text('Print / Export PDF', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primaryBlue,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

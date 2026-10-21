@@ -268,11 +268,36 @@ class DBHelper {
 
   Future<int> insertOrUpdateAttendance(Attendance attendance) async {
     final db = await instance.database;
+    invalidateDashboardStats();
     return await db.insert(
       'attendance',
       attendance.toMap(),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+  }
+
+  Future<int> updateAttendanceRecord({
+    required int id,
+    required String status,
+    String? notes,
+  }) async {
+    final db = await instance.database;
+    invalidateDashboardStats();
+    return await db.update(
+      'attendance',
+      {
+        'status': status,
+        'notes': notes,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<int> deleteAttendanceSingleRecord(int id) async {
+    final db = await instance.database;
+    invalidateDashboardStats();
+    return await db.delete('attendance', where: 'id = ?', whereArgs: [id]);
   }
 
   Future<void> batchSaveAttendance(List<Attendance> attendanceList) async {
@@ -368,11 +393,13 @@ class DBHelper {
 
   Future<int> insertFeePayment(FeePayment payment) async {
     final db = await instance.database;
+    invalidateDashboardStats();
     return await db.insert('fee_payments', payment.toMap());
   }
 
   Future<int> updateFeePayment(FeePayment payment) async {
     final db = await instance.database;
+    invalidateDashboardStats();
     return await db.update(
       'fee_payments',
       payment.toMap(),
@@ -383,6 +410,7 @@ class DBHelper {
 
   Future<int> deleteFeePayment(int id) async {
     final db = await instance.database;
+    invalidateDashboardStats();
     return await db.delete('fee_payments', where: 'id = ?', whereArgs: [id]);
   }
 
