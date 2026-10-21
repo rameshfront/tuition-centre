@@ -332,16 +332,20 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
       final List<FeePayment> paymentsToInsert = [];
       for (int i = 0; i < _selectedMonths.length; i++) {
         final m = _selectedMonths[i];
+        final itemReceiptNo = _selectedMonths.length == 1
+            ? receiptNo
+            : '$receiptNo-${i + 1}';
+
         paymentsToInsert.add(
           FeePayment(
             studentId: _selectedStudent!.id!,
-            receiptNo: receiptNo,
+            receiptNo: itemReceiptNo,
             amount: perMonthAmount,
             paymentDate: _paymentDateController.text.trim(),
             feeMonth: m,
             paymentMethod: _selectedMethod,
             notes: _selectedMonths.length > 1
-                ? (notesText.isNotEmpty ? '$notesText [Month ${i + 1}/${_selectedMonths.length}]' : 'Multi-month payment [${i + 1}/${_selectedMonths.length}]')
+                ? (notesText.isNotEmpty ? '$notesText [Bill #$receiptNo (${i + 1}/${_selectedMonths.length})]' : 'Bill #$receiptNo (${i + 1}/${_selectedMonths.length})')
                 : (notesText.isNotEmpty ? notesText : null),
             createdAt: nowStr,
             studentName: _selectedStudent!.fullName,

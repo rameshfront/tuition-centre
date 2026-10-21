@@ -477,7 +477,20 @@ class DBHelper {
       "SELECT COUNT(*) as count FROM fee_payments WHERE receipt_no LIKE 'STC-$monthPrefix-%'",
     );
     int count = (result.first['count'] as int? ?? 0) + 1;
-    return 'STC-$monthPrefix-${count.toString().padLeft(3, '0')}';
+    String candidate = 'STC-$monthPrefix-${count.toString().padLeft(3, '0')}';
+
+    // Verify candidate does not already exist
+    while (true) {
+      final exists = await db.rawQuery(
+        "SELECT 1 FROM fee_payments WHERE receipt_no = ? OR receipt_no LIKE ? LIMIT 1",
+        [candidate, '$candidate-%'],
+      );
+      if (exists.isEmpty) break;
+      count++;
+      candidate = 'STC-$monthPrefix-${count.toString().padLeft(3, '0')}';
+    }
+
+    return candidate;
   }
 
   Future<Map<String, double>> getStudentFeeSummary(int studentId) async {
