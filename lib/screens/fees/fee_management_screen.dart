@@ -322,9 +322,9 @@ class _FeeManagementScreenState extends State<FeeManagementScreen> with SingleTi
                                 notes: notesController.text.trim().isNotEmpty ? notesController.text.trim() : null,
                                 createdAt: p.createdAt,
                                 studentName: p.studentName,
-                                studentIdCode: p.studentIdCode,
+                                studentCode: p.studentCode,
                                 gradeClass: p.gradeClass,
-                                monthlyFees: p.monthlyFees,
+                                studentMonthlyFee: p.studentMonthlyFee,
                               );
 
                               await DBHelper.instance.updateFeePayment(updated);
