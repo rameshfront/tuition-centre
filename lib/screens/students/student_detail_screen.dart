@@ -312,12 +312,12 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
             Expanded(
               child: ElevatedButton.icon(
                 onPressed: () async {
-                  final res = await Navigator.of(context).push(
+                  await Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => RecordPaymentScreen(initialStudent: _student),
                     ),
                   );
-                  if (res == true) _loadAllData();
+                  _loadAllData();
                 },
                 icon: const Icon(Icons.currency_rupee_rounded, size: 18),
                 label: const Text('Collect Fee'),
@@ -369,6 +369,12 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> with SingleTi
           icon: Icons.payments_rounded,
           rows: [
             _detailRow('Agreed Monthly Fee', currency.format(_student!.monthlyFees)),
+            if (_student!.feeStartDate != null && _student!.feeStartDate!.isNotEmpty) ...[
+              _detailRow(
+                'Fee Billing Starts',
+                DateFormat('MMMM yyyy').format(DateTime.parse(_student!.feeStartDate!)),
+              ),
+            ],
             _detailRow('Total Paid So Far', currency.format(_feeSummary['totalPaid'] ?? 0)),
             _detailRow(
               'Current Pending Dues',

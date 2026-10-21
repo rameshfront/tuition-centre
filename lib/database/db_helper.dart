@@ -69,6 +69,11 @@ class DBHelper {
         await db.execute('CREATE INDEX IF NOT EXISTS idx_attendance_student ON attendance (student_id)');
         await db.execute('CREATE INDEX IF NOT EXISTS idx_fee_student ON fee_payments (student_id)');
         await db.execute('CREATE INDEX IF NOT EXISTS idx_fee_month ON fee_payments (fee_month)');
+
+        // Safely migrate fee_start_date column if not present
+        try {
+          await db.execute('ALTER TABLE students ADD COLUMN fee_start_date TEXT');
+        } catch (_) {}
       },
     );
   }
@@ -114,6 +119,7 @@ class DBHelper {
         school_name TEXT,
         subjects TEXT NOT NULL,
         admission_date TEXT NOT NULL,
+        fee_start_date TEXT,
         monthly_fees REAL NOT NULL,
         notes TEXT,
         is_active INTEGER NOT NULL DEFAULT 1,
@@ -397,6 +403,17 @@ class DBHelper {
     return await db.insert('fee_payments', payment.toMap());
   }
 
+  Future<void> insertMultipleFeePayments(List<FeePayment> payments) async {
+    if (payments.isEmpty) return;
+    final db = await instance.database;
+    invalidateDashboardStats();
+    final batch = db.batch();
+    for (final p in payments) {
+      batch.insert('fee_payments', p.toMap());
+    }
+    await batch.commit(noResult: true);
+  }
+
   Future<int> updateFeePayment(FeePayment payment) async {
     final db = await instance.database;
     invalidateDashboardStats();
@@ -467,7 +484,7 @@ class DBHelper {
     final db = await instance.database;
     final studentData = await db.query(
       'students',
-      columns: ['monthly_fees', 'admission_date', 'is_active'],
+      columns: ['monthly_fees', 'admission_date', 'fee_start_date', 'is_active'],
       where: 'id = ?',
       whereArgs: [studentId],
     );
@@ -478,6 +495,8 @@ class DBHelper {
 
     final monthlyFee = (studentData.first['monthly_fees'] as num?)?.toDouble() ?? 0.0;
     final admDateStr = studentData.first['admission_date'] as String? ?? '';
+    final feeStartStr = studentData.first['fee_start_date'] as String? ?? admDateStr;
+    final effectiveStart = feeStartStr.isNotEmpty ? feeStartStr : admDateStr;
     
     // Total payments made
     final payResult = await db.rawQuery(
@@ -486,13 +505,13 @@ class DBHelper {
     );
     final totalPaid = (payResult.first['total_paid'] as num?)?.toDouble() ?? 0.0;
 
-    // Estimate expected dues based on active months since admission
+    // Estimate expected dues based on active months since effective fee start date
     int monthsCount = 1;
     try {
-      if (admDateStr.isNotEmpty) {
-        final admDate = DateTime.parse(admDateStr);
+      if (effectiveStart.isNotEmpty) {
+        final startDate = DateTime.parse(effectiveStart);
         final now = DateTime.now();
-        monthsCount = ((now.year - admDate.year) * 12) + (now.month - admDate.month) + 1;
+        monthsCount = ((now.year - startDate.year) * 12) + (now.month - startDate.month) + 1;
         if (monthsCount < 1) monthsCount = 1;
       }
     } catch (_) {
@@ -613,7 +632,7 @@ class DBHelper {
 
     // 4. Calculate pending fees across all active students with 1 high-speed JOIN query
     final activeWithPayments = await db.rawQuery('''
-      SELECT s.id, s.monthly_fees, s.admission_date, COALESCE(p.total_paid, 0) as total_paid
+      SELECT s.id, s.monthly_fees, s.admission_date, s.fee_start_date, COALESCE(p.total_paid, 0) as total_paid
       FROM students s
       LEFT JOIN (
         SELECT student_id, SUM(amount) as total_paid
@@ -629,13 +648,15 @@ class DBHelper {
     for (var row in activeWithPayments) {
       final monthlyFee = (row['monthly_fees'] as num?)?.toDouble() ?? 0.0;
       final admDateStr = row['admission_date'] as String? ?? '';
+      final feeStartStr = row['fee_start_date'] as String? ?? admDateStr;
+      final effectiveStart = feeStartStr.isNotEmpty ? feeStartStr : admDateStr;
       final totalPaid = (row['total_paid'] as num?)?.toDouble() ?? 0.0;
 
       int monthsCount = 1;
       try {
-        if (admDateStr.isNotEmpty) {
-          final admDate = DateTime.parse(admDateStr);
-          monthsCount = ((now.year - admDate.year) * 12) + (now.month - admDate.month) + 1;
+        if (effectiveStart.isNotEmpty) {
+          final startDate = DateTime.parse(effectiveStart);
+          monthsCount = ((now.year - startDate.year) * 12) + (now.month - startDate.month) + 1;
           if (monthsCount < 1) monthsCount = 1;
         }
       } catch (_) {
@@ -684,14 +705,16 @@ class DBHelper {
     for (var row in rows) {
       final s = Student.fromMap(row);
       final monthlyFee = s.monthlyFees;
-      final admDateStr = s.admissionDate;
+      final effectiveStart = (s.feeStartDate != null && s.feeStartDate!.isNotEmpty)
+          ? s.feeStartDate!
+          : s.admissionDate;
       final totalPaid = (row['total_paid'] as num?)?.toDouble() ?? 0.0;
 
       int monthsCount = 1;
       try {
-        if (admDateStr.isNotEmpty) {
-          final admDate = DateTime.parse(admDateStr);
-          monthsCount = ((now.year - admDate.year) * 12) + (now.month - admDate.month) + 1;
+        if (effectiveStart.isNotEmpty) {
+          final startDate = DateTime.parse(effectiveStart);
+          monthsCount = ((now.year - startDate.year) * 12) + (now.month - startDate.month) + 1;
           if (monthsCount < 1) monthsCount = 1;
         }
       } catch (_) {

@@ -12,6 +12,7 @@ class Student {
   final String? schoolName;
   final String subjects; // Comma separated string e.g. "Maths, Science"
   final String admissionDate; // yyyy-MM-dd
+  final String? feeStartDate; // yyyy-MM-dd: Starting date/month for fee calculation
   final double monthlyFees;
   final String? notes;
   final bool isActive;
@@ -31,6 +32,7 @@ class Student {
     this.schoolName,
     required this.subjects,
     required this.admissionDate,
+    this.feeStartDate,
     required this.monthlyFees,
     this.notes,
     this.isActive = true,
@@ -52,6 +54,7 @@ class Student {
       'school_name': schoolName,
       'subjects': subjects,
       'admission_date': admissionDate,
+      'fee_start_date': feeStartDate ?? admissionDate,
       'monthly_fees': monthlyFees,
       'notes': notes,
       'is_active': isActive ? 1 : 0,
@@ -74,6 +77,7 @@ class Student {
       schoolName: map['school_name'] as String?,
       subjects: map['subjects'] as String? ?? '',
       admissionDate: map['admission_date'] as String? ?? '',
+      feeStartDate: map['fee_start_date'] as String? ?? map['admission_date'] as String?,
       monthlyFees: (map['monthly_fees'] as num?)?.toDouble() ?? 0.0,
       notes: map['notes'] as String?,
       isActive: (map['is_active'] as int? ?? 1) == 1,
@@ -95,6 +99,7 @@ class Student {
     String? schoolName,
     String? subjects,
     String? admissionDate,
+    String? feeStartDate,
     double? monthlyFees,
     String? notes,
     bool? isActive,
@@ -114,6 +119,7 @@ class Student {
       schoolName: schoolName ?? this.schoolName,
       subjects: subjects ?? this.subjects,
       admissionDate: admissionDate ?? this.admissionDate,
+      feeStartDate: feeStartDate ?? this.feeStartDate,
       monthlyFees: monthlyFees ?? this.monthlyFees,
       notes: notes ?? this.notes,
       isActive: isActive ?? this.isActive,

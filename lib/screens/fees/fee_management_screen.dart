@@ -46,8 +46,8 @@ class _FeeManagementScreenState extends State<FeeManagementScreen> with SingleTi
     super.dispose();
   }
 
-  Future<void> _loadFeesData() async {
-    if (_payments.isEmpty && _pendingStudents.isEmpty) {
+  Future<void> _loadFeesData({bool showIndicator = false}) async {
+    if (showIndicator || (_payments.isEmpty && _pendingStudents.isEmpty)) {
       setState(() => _isLoading = true);
     }
 
@@ -497,6 +497,22 @@ class _FeeManagementScreenState extends State<FeeManagementScreen> with SingleTi
         elevation: 0,
         actions: [
           IconButton(
+            icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+            tooltip: 'Refresh Fees Data',
+            onPressed: () async {
+              await _loadFeesData(showIndicator: true);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Fees data refreshed successfully!'),
+                    duration: Duration(milliseconds: 1500),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.picture_as_pdf_rounded, color: Colors.white),
             tooltip: 'Export Fee Report PDF',
             onPressed: _exportFeesReport,
@@ -593,10 +609,10 @@ class _FeeManagementScreenState extends State<FeeManagementScreen> with SingleTi
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
-          final res = await Navigator.of(context).push(
+          await Navigator.of(context).push(
             MaterialPageRoute(builder: (_) => const RecordPaymentScreen()),
           );
-          if (res == true) _loadFeesData();
+          _loadFeesData(showIndicator: true);
         },
         backgroundColor: AppColors.primaryBlue,
         icon: const Icon(Icons.add_card_rounded, color: Colors.white),
@@ -610,17 +626,33 @@ class _FeeManagementScreenState extends State<FeeManagementScreen> with SingleTi
   // ==========================================
   Widget _buildPendingDuesTab(NumberFormat currency) {
     if (_pendingStudents.isEmpty) {
-      return const EmptyStateWidget(
-        icon: Icons.check_circle_outline_rounded,
-        title: 'All Fees Cleared!',
-        message: 'Great news! No student has pending tuition fee dues right now.',
+      return RefreshIndicator(
+        onRefresh: () => _loadFeesData(showIndicator: true),
+        color: AppColors.primaryBlue,
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: const EmptyStateWidget(
+                icon: Icons.check_circle_outline_rounded,
+                title: 'All Fees Cleared!',
+                message: 'Great news! No student has pending tuition fee dues right now.',
+              ),
+            ),
+          ),
+        ),
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(12),
-      itemCount: _pendingStudents.length,
-      itemBuilder: (context, index) {
+    return RefreshIndicator(
+      onRefresh: () => _loadFeesData(showIndicator: true),
+      color: AppColors.primaryBlue,
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(12),
+        itemCount: _pendingStudents.length,
+        itemBuilder: (context, index) {
         final item = _pendingStudents[index];
         final Student student = item['student'] as Student;
         final balance = item['balance'] as double;
@@ -675,17 +707,17 @@ class _FeeManagementScreenState extends State<FeeManagementScreen> with SingleTi
                     const SizedBox(height: 4),
                     ElevatedButton(
                       onPressed: () async {
-                        final res = await Navigator.of(context).push(
+                        await Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) => RecordPaymentScreen(
                               initialStudent: student,
                               initialMonth: _selectedMonth != 'All Months'
                                   ? _selectedMonth
-                                  : DateFormat('MMMM yyyy').format(DateTime.now()),
+                                  : null,
                             ),
                           ),
                         );
-                        if (res == true) _loadFeesData();
+                        _loadFeesData(showIndicator: true);
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primaryBlue,
@@ -704,8 +736,9 @@ class _FeeManagementScreenState extends State<FeeManagementScreen> with SingleTi
           ),
         );
       },
-    );
-  }
+    ),
+  );
+}
 
   // ==========================================
   // TAB 2: PAYMENT HISTORY
@@ -750,15 +783,31 @@ class _FeeManagementScreenState extends State<FeeManagementScreen> with SingleTi
 
         Expanded(
           child: _payments.isEmpty
-              ? const EmptyStateWidget(
-                  icon: Icons.receipt_long_rounded,
-                  title: 'No Payments Found',
-                  message: 'No fee receipts match your search.',
+              ? RefreshIndicator(
+                  onRefresh: () => _loadFeesData(showIndicator: true),
+                  color: AppColors.primaryBlue,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) => SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                        child: const EmptyStateWidget(
+                          icon: Icons.receipt_long_rounded,
+                          title: 'No Payments Found',
+                          message: 'No fee receipts match your search.',
+                        ),
+                      ),
+                    ),
+                  ),
                 )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: _payments.length,
-                  itemBuilder: (context, index) {
+              : RefreshIndicator(
+                  onRefresh: () => _loadFeesData(showIndicator: true),
+                  color: AppColors.primaryBlue,
+                  child: ListView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(12),
+                    itemCount: _payments.length,
+                    itemBuilder: (context, index) {
                     final p = _payments[index];
 
                     return Card(
