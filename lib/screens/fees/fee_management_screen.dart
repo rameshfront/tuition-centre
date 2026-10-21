@@ -948,6 +948,7 @@ class _FeeManagementScreenState extends State<FeeManagementScreen> with SingleTi
                     );
                   },
                 ),
+              ),
         ),
       ],
     );
